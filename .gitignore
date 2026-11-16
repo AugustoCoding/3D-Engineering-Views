@@ -34,3 +34,7 @@ geracao-de-documentos/equipe.local.json
 *.pem
 *.key
 .claude/settings.local.json
+
+# rosto do companion e outros dados locais: pessoa de verdade, fora do git
+*.local.js
+artifact/*.local.html

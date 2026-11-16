@@ -18,7 +18,10 @@ import { COMPANION } from '../data/ambiente.js';
  */
 export function criarCompanheiro({ cena, avisar }) {
   const controles = cena.controls, camera = cena.camera;
-  const pessoa = criarPessoa(COMPANION.figura);
+  // o rosto vem de um arquivo local, fora do git (scripts/rosto-companion.py):
+  // e a foto de uma pessoa. Sem ele, a cabeca sai lisa.
+  const ROSTO = Object.values(import.meta.glob('../data/rosto.local.js', { eager: true }))[0]?.ROSTO;
+  const pessoa = criarPessoa({ ...COMPANION.figura, ...(ROSTO ? { rosto: ROSTO.imagem, pele: ROSTO.pele } : {}) });
   const g = pessoa.grupo;
   g.name = 'pessoa-companion';
   g.userData.animar = true;                       // fora da fusao: ele se mexe

@@ -26,6 +26,11 @@ Este repositório é (ou vai ser) **público**. Em nenhum commit entram:
   (`C:\Users\...`);
 - o `artifact/maquete-planta.html` sem conferir: ele empacota tudo o que o
   `main.js` importa.
+- **foto de pessoa**: o rosto do companion vem de `src/data/rosto.local.js`
+  (`scripts/rosto-companion.py`, fora do git, como todo `*.local.js`). O HTML
+  do repositório se gera **sem** esse arquivo (`npm run artifact:publico`);
+  o `npm run artifact` comum, com ele presente, embute a foto — o resultado
+  vai para `artifact/maquete-planta.local.html`, ignorado, e não se commita.
 
 Como isso se garante: o `.gitignore` já barra esses arquivos; o gancho
 `.githooks/pre-commit` recusa documento, segredo, e-mail, caminho e os nomes

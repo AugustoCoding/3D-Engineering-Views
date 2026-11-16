@@ -325,6 +325,7 @@ export function texturaListras(cores, faixas = 8) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.magFilter = THREE.NearestFilter;
+  t.wrapT = THREE.RepeatWrapping;                 // a listra segue pela altura do corpo
   LISTRAS.set(k, t);
   return t;
 }

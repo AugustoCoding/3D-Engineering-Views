@@ -9,6 +9,7 @@
     "build": "vite build && node scripts/build-artifact.mjs",
     "preview": "vite preview",
     "artifact": "npm run build",
+    "artifact:publico": "node scripts/artifact-publico.mjs",
     "croqui": "node geracao-de-documentos/gerar-croqui.mjs",
     "croquis-ficha": "python -X utf8 scripts/croquis-ficha.py",
     "datasheet": "node geracao-de-documentos/gerar-datasheet.mjs",

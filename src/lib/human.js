@@ -27,6 +27,15 @@ function material(cor, extra = {}) {
 const GEO = {};
 function geo(nome, f) { GEO[nome] ??= f(); return GEO[nome]; }
 
+/** Poe o v da textura pela altura (m acima do quadril, dada por `f(y local)`):
+ *  as listras da camisa ficam com o mesmo passo em todas as pecas. */
+const ALTURA_LISTRAS = 0.64;                      // m que as 8 faixas da textura cobrem
+function listrar(g, f) {
+  const p = g.attributes.position, uv = g.attributes.uv;
+  for (let i = 0; i < p.count; i++) uv.setY(i, f(p.getY(i)) / ALTURA_LISTRAS);
+  return g;
+}
+
 function malha(g, mat, x, y, z, sx = 1, sy = 1, sz = 1) {
   const m = new THREE.Mesh(g, mat);
   m.position.set(x, y, z);
@@ -42,7 +51,11 @@ function malha(g, mat, x, y, z, sx = 1, sy = 1, sz = 1) {
  *   pele     tom de pele
  *   capacete cor do capacete, ou null (cabelo)
  *   colete   cor do colete refletivo, ou null
- *   porte    largura do tronco e grossura dos bracos (1 = corpo medio)
+ *   atletico true: corpo forte — tronco em V (cintura fina, dorsal e ombro
+ *            largos), peitoral, deltoide, biceps e triceps, antebraco e
+ *            perna afinando, panturrilha; de manga curta e shorts
+ *   cabecaEscala  tamanho da cabeca (1 = proporcao media)
+ *   rosto    imagem (URL de dados) posta na frente da cabeca, ou null
  *   listras  [cor, cor]: camisa de listras horizontais, em vez de `roupa`
  *   manga    'curta': braco de fora, com a manga so no alto
  *   shorts   true: a calca acaba no joelho (canela de fora)
@@ -50,13 +63,13 @@ function malha(g, mat, x, y, z, sx = 1, sy = 1, sz = 1) {
  * @returns {{ grupo: THREE.Group, animar: (fase: number, intensidade?: number) => void }}
  */
 export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7a, capacete = 0xffd24a, colete = null, cabelo = 0x2a211b,
-  porte = 1, listras = null, manga = 'longa', shorts = false, chinelo = null } = {}) {
+  atletico = false, rosto = null, cabecaEscala = 1, listras = null, manga = 'longa', shorts = false, chinelo = null } = {}) {
   const g = new THREE.Group();
   g.name = 'pessoa';
   const mRoupa = listras
     ? new THREE.MeshStandardMaterial({ map: texturaListras(listras), roughness: 0.75, metalness: 0.02, name: 'camisa-listrada' })
     : material(roupa);
-  const curta = manga === 'curta', gr = porte ** 1.3;   // o braco engrossa mais que o tronco alarga
+  const curta = manga === 'curta';
   const mCalca = material(calca), mPele = material(pele, { roughness: 0.6 });
   const mBota = material(0x2a2522, { roughness: 0.9 });
 
@@ -68,11 +81,20 @@ export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7
   const pernas = [];
   for (const s of [-1, 1]) {
     const coxa = new THREE.Group();
-    coxa.position.set(s * 0.1, yQuadril, 0);
-    coxa.add(malha(geo('coxa', () => new THREE.CapsuleGeometry(0.075, 0.34, 4, 10)), mCalca, 0, -0.22, 0, porte, 1, porte));
+    coxa.position.set(s * (atletico ? 0.105 : 0.1), yQuadril, 0);
     const joelho = new THREE.Group();
     joelho.position.set(0, -0.44, 0);
-    joelho.add(malha(geo('canela', () => new THREE.CapsuleGeometry(0.06, 0.34, 4, 10)), shorts ? mPele : mCalca, 0, -0.2, 0, shorts ? porte : 1, 1, shorts ? porte : 1));
+    if (atletico) {
+      // a coxa afina ate o joelho; o shorts, folgado, cobre ate pouco acima dele
+      coxa.add(malha(geo('coxa-forte', () => new THREE.CylinderGeometry(0.088, 0.06, 0.44, 14)), mPele, 0, -0.22, 0));
+      coxa.add(malha(geo('perna-shorts', () => new THREE.CylinderGeometry(0.1, 0.094, 0.3, 14)), mCalca, 0, -0.13, 0));
+      joelho.add(malha(geo('joelho', () => new THREE.SphereGeometry(0.06, 12, 8)), mPele, 0, 0, 0.005));
+      joelho.add(malha(geo('canela-forte', () => new THREE.CylinderGeometry(0.052, 0.036, 0.36, 12)), mPele, 0, -0.21, 0));
+      joelho.add(malha(geo('panturrilha', () => new THREE.SphereGeometry(0.05, 12, 8)), mPele, 0, -0.15, -0.024, 1.05, 1.9, 1.1));
+    } else {
+      coxa.add(malha(geo('coxa', () => new THREE.CapsuleGeometry(0.075, 0.34, 4, 10)), mCalca, 0, -0.22, 0));
+      joelho.add(malha(geo('canela', () => new THREE.CapsuleGeometry(0.06, 0.34, 4, 10)), shorts ? mPele : mCalca, 0, -0.2, 0));
+    }
     if (chinelo == null) joelho.add(malha(geo('bota', () => new THREE.BoxGeometry(0.11, 0.08, 0.26)), mBota, 0, -0.43, 0.05));
     else {
       // chinelo: sola fina, o pe de fora e a tira por cima do peito do pe
@@ -87,48 +109,89 @@ export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7
   }
 
   // --- tronco, quadril e pescoco ---
-  corpo.add(malha(geo('quadril', () => new THREE.CapsuleGeometry(0.15, 0.08, 4, 12)), mCalca, 0, yQuadril + 0.02, 0, 1, 1, 0.8));
-  corpo.add(malha(geo('tronco', () => new THREE.CapsuleGeometry(0.17, 0.36, 4, 14)), mRoupa, 0, yQuadril + 0.33, 0, porte, 1, 0.72 * (1 + (porte - 1) * 0.6)));
-  // corpo forte: peitoral a frente e o deltoide no ombro, da cor da camisa
-  if (porte > 1.15) {
-    corpo.add(malha(geo('peito', () => new THREE.SphereGeometry(0.16, 14, 10)), mRoupa, 0, yQuadril + 0.42, 0.03, porte * 1.08, 0.75, 0.8));
-    for (const s of [-1, 1]) corpo.add(malha(geo('deltoide', () => new THREE.SphereGeometry(0.075, 12, 8)), mRoupa, s * 0.22 * porte, 1.43, 0, gr, gr, gr));
+  const yOmbro = atletico ? yQuadril + 0.5 : 1.43, xOmbro = atletico ? 0.268 : 0.22;
+  if (atletico) {
+    /* Tronco em V: perfil de revolucao (raio, altura acima do quadril), achatado
+     * de frente para tras — cintura fina, dorsal larga, e o trapezio subindo
+     * ate o pescoco. Proporcao de quem treina: ombros ~1,6 vez a cintura. */
+    const PERFIL = [[0.02, 0], [0.15, 0], [0.163, 0.05], [0.15, 0.14], [0.166, 0.26], [0.2, 0.4], [0.206, 0.47], [0.186, 0.54], [0.12, 0.6], [0.066, 0.635], [0.052, 0.66]];
+    corpo.add(malha(geo('quadril', () => new THREE.CapsuleGeometry(0.15, 0.08, 4, 12)), mCalca, 0, yQuadril + 0.02, 0, 1.04, 1, 0.85));
+    corpo.add(malha(geo('tronco-forte', () => listrar(new THREE.LatheGeometry(PERFIL.map(([r, y]) => new THREE.Vector2(r, y)), 22), (y) => y)),
+      mRoupa, 0, yQuadril, 0, 1.12, 1, 0.66));
+    for (const s of [-1, 1]) {
+      corpo.add(malha(geo('peitoral', () => listrar(new THREE.SphereGeometry(0.1, 14, 10), (y) => 0.43 + 0.6 * y)),
+        mRoupa, s * 0.09, yQuadril + 0.43, 0.074, 1.1, 0.6, 0.42));
+    }
+    corpo.add(malha(geo('pescoco-forte', () => new THREE.CylinderGeometry(0.056, 0.066, 0.11, 12)), mPele, 0, 1.535, 0));
+  } else {
+    corpo.add(malha(geo('quadril', () => new THREE.CapsuleGeometry(0.15, 0.08, 4, 12)), mCalca, 0, yQuadril + 0.02, 0, 1, 1, 0.8));
+    corpo.add(malha(geo('tronco', () => new THREE.CapsuleGeometry(0.17, 0.36, 4, 14)), mRoupa, 0, yQuadril + 0.33, 0, 1, 1, 0.72));
+    if (colete) {
+      corpo.add(malha(geo('colete', () => new THREE.CapsuleGeometry(0.178, 0.26, 4, 14)), material(colete, { emissive: colete, emissiveIntensity: 0.15 }),
+        0, yQuadril + 0.37, 0, 1, 1, 0.76));
+    }
+    corpo.add(malha(geo('pescoco', () => new THREE.CylinderGeometry(0.045, 0.05, 0.08, 10)), mPele, 0, 1.53, 0));
   }
-  if (colete) {
-    corpo.add(malha(geo('colete', () => new THREE.CapsuleGeometry(0.178, 0.26, 4, 14)), material(colete, { emissive: colete, emissiveIntensity: 0.15 }),
-      0, yQuadril + 0.37, 0, 1, 1, 0.76));
-  }
-  corpo.add(malha(geo('pescoco', () => new THREE.CylinderGeometry(0.045, 0.05, 0.08, 10)), mPele, 0, 1.53, 0, porte, 1, porte));
 
   // --- bracos: braco (pivo no ombro) > antebraco (pivo no cotovelo) > mao ---
   const bracos = [];
   for (const s of [-1, 1]) {
     const ombro = new THREE.Group();
-    ombro.position.set(s * 0.22 * porte, 1.43, 0);
-    ombro.add(malha(geo('braco', () => new THREE.CapsuleGeometry(0.052, 0.22, 4, 8)), curta ? mPele : mRoupa, 0, -0.15, 0, gr, 1, gr));
-    if (curta) ombro.add(malha(geo('manga', () => new THREE.CapsuleGeometry(0.058, 0.07, 4, 8)), mRoupa, 0, -0.08, 0, gr, 1, gr));
+    ombro.position.set(s * xOmbro, yOmbro, 0);
     const cotovelo = new THREE.Group();
     cotovelo.position.set(0, -0.3, 0);
-    cotovelo.add(malha(geo('antebraco', () => new THREE.CapsuleGeometry(0.045, 0.2, 4, 8)), curta ? mPele : mRoupa, 0, -0.13, 0, gr, 1, gr));
-    const mao = malha(geo('mao', () => new THREE.SphereGeometry(0.045, 10, 8)), mPele, 0, -0.28, 0);
+    let mao;
+    if (atletico) {
+      // deltoide e manga curta (da camisa); biceps a frente e triceps atras
+      ombro.add(malha(geo('deltoide', () => listrar(new THREE.SphereGeometry(0.092, 14, 10), (y) => 0.5 + y)), mRoupa, 0, -0.005, 0, 1, 1.05, 1.05));
+      ombro.add(malha(geo('manga-forte', () => listrar(new THREE.CylinderGeometry(0.08, 0.084, 0.13, 14, 1, true), (y) => 0.4 + y)), mRoupa, 0, -0.1, 0));
+      ombro.add(malha(geo('braco-forte', () => new THREE.CylinderGeometry(0.067, 0.052, 0.3, 12)), mPele, 0, -0.15, 0));
+      ombro.add(malha(geo('biceps', () => new THREE.SphereGeometry(0.06, 12, 8)), mPele, 0, -0.16, 0.026, 0.95, 1.6, 0.95));
+      ombro.add(malha(geo('triceps', () => new THREE.SphereGeometry(0.054, 12, 8)), mPele, 0, -0.14, -0.028, 0.95, 1.7, 0.9));
+      cotovelo.add(malha(geo('cotovelo', () => new THREE.SphereGeometry(0.052, 10, 8)), mPele, 0, 0, 0));
+      cotovelo.add(malha(geo('antebraco-forte', () => new THREE.CylinderGeometry(0.056, 0.037, 0.25, 12)), mPele, 0, -0.125, 0));
+      mao = malha(geo('mao', () => new THREE.SphereGeometry(0.045, 10, 8)), mPele, 0, -0.28, 0, 1.08, 1.15, 1.08);
+    } else {
+      ombro.add(malha(geo('braco', () => new THREE.CapsuleGeometry(0.052, 0.22, 4, 8)), curta ? mPele : mRoupa, 0, -0.15, 0));
+      if (curta) ombro.add(malha(geo('manga', () => new THREE.CapsuleGeometry(0.058, 0.07, 4, 8)), mRoupa, 0, -0.08, 0));
+      cotovelo.add(malha(geo('antebraco', () => new THREE.CapsuleGeometry(0.045, 0.2, 4, 8)), curta ? mPele : mRoupa, 0, -0.13, 0));
+      mao = malha(geo('mao', () => new THREE.SphereGeometry(0.045, 10, 8)), mPele, 0, -0.28, 0);
+    }
     cotovelo.add(mao);
     ombro.add(cotovelo);
-    ombro.rotation.z = s * 0.06;                 // bracos levemente abertos
+    ombro.rotation.z = s * (atletico ? 0.13 : 0.06);   // bracos levemente abertos (mais, com a dorsal larga)
     corpo.add(ombro);
     bracos.push({ ombro, cotovelo, s, mao });
   }
 
   // --- cabeca: rosto, e capacete ou cabelo ---
   const cabeca = new THREE.Group();
-  cabeca.position.set(0, 1.66, 0);
+  // cabeca maior: cresce para cima, com o queixo no mesmo lugar
+  cabeca.position.set(0, 1.66 + 0.1 * (cabecaEscala - 1), 0);
+  cabeca.scale.setScalar(cabecaEscala);
   cabeca.add(malha(geo('cabeca', () => new THREE.SphereGeometry(0.1, 16, 12)), mPele, 0, 0, 0, 0.92, 1.08, 1));
-  cabeca.add(malha(geo('nariz', () => new THREE.SphereGeometry(0.018, 8, 6)), mPele, 0, -0.01, 0.095));
+  if (rosto) {
+    /* A foto num gomo de esfera a frente da cabeca, 3,5 mm por fora dela e do
+     * cabelo na testa; dos lados o cabelo (mais largo) o cobre. A imagem ja
+     * vem desfeita no tom de pele nas bordas (scripts/rosto-companion.py). */
+    const tx = new THREE.TextureLoader().load(rosto);
+    tx.colorSpace = THREE.SRGBColorSpace;
+    const m = malha(new THREE.SphereGeometry(0.1035, 28, 20, Math.PI / 2 - 1.0, 2.0, 0.38, 2.2),
+      new THREE.MeshStandardMaterial({ map: tx, roughness: 0.6, metalness: 0.02, name: 'rosto' }), 0, 0, 0, 0.92, 1.08, 1);
+    m.castShadow = false;
+    cabeca.add(m);
+  } else cabeca.add(malha(geo('nariz', () => new THREE.SphereGeometry(0.018, 8, 6)), mPele, 0, -0.01, 0.095));
   if (capacete) {
     const mc = material(capacete, { roughness: 0.4, metalness: 0.05 });
     cabeca.add(malha(geo('casco', () => new THREE.SphereGeometry(0.118, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2)), mc, 0, 0.03, 0, 1, 0.9, 1.05));
     cabeca.add(malha(geo('aba', () => new THREE.CylinderGeometry(0.13, 0.13, 0.012, 18)), mc, 0, 0.035, 0.03, 1, 1, 1.12));
   } else {
-    cabeca.add(malha(geo('cabelo', () => new THREE.SphereGeometry(0.105, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55)), material(cabelo, { roughness: 0.9 }), 0, 0.015, -0.01));
+    // com foto no rosto, cabelo curto e para tras: a testa e a linha do cabelo sao da foto
+    if (rosto) {
+      const c = malha(geo('cabelo-curto', () => new THREE.SphereGeometry(0.103, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5)), material(cabelo, { roughness: 0.9 }), 0, 0.006, -0.012, 0.95, 1.06, 1);
+      c.rotation.x = -0.5;
+      cabeca.add(c);
+    } else cabeca.add(malha(geo('cabelo', () => new THREE.SphereGeometry(0.105, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55)), material(cabelo, { roughness: 0.9 }), 0, 0.015, -0.01));
   }
   corpo.add(cabeca);
 

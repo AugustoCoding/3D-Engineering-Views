@@ -14,7 +14,11 @@ import { fileURLToPath } from 'node:url';
 const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(raiz, 'dist');
 const saidaDir = join(raiz, 'artifact');
-const saida = join(saidaDir, 'maquete-planta.html');
+// Com a foto do rosto do companion presente (src/data/rosto.local.js, fora do
+// git), o HTML a embute: vai para um arquivo que o git ignora. O do
+// repositorio sai de `npm run artifact:publico`, sem ela.
+const comRosto = existsSync(join(raiz, 'src', 'data', 'rosto.local.js'));
+const saida = join(saidaDir, comRosto ? 'maquete-planta.local.html' : 'maquete-planta.html');
 
 if (!existsSync(join(dist, 'app.js'))) {
   console.error('dist/app.js nao encontrado. Rode `npm run build` antes.');
@@ -22,6 +26,11 @@ if (!existsSync(join(dist, 'app.js'))) {
 }
 
 const js = readFileSync(join(dist, 'app.js'), 'utf8');
+// Trava: foto embutida no arquivo que vai para o git e erro, nao aviso.
+if (!comRosto && /data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]{2000}/.test(js)) {
+  console.error('O bundle traz uma imagem embutida e nao deveria (foto de pessoa?).');
+  process.exit(1);
+}
 
 // CSS lido da FONTE, nao do build.
 //

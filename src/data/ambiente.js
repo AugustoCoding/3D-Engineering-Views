@@ -231,7 +231,7 @@ export const COMPANION = {
   perto: 2, longe: 3, andar: 4.5, correr: 11, sumiu: 18,
   // a figura (pedido do autor, 16/11/2026): forte, camisa de listras
   // rubro-negras, cabelo preto, shorts azul-escuro e chinelo [ADOTADO]
-  figura: { porte: 1.35, listras: [0xc8102e, 0x111111], manga: 'curta', calca: 0x14213d, shorts: true, chinelo: 0x1a1a1a, capacete: null, cabelo: 0x0c0c0c },
+  figura: { atletico: true, cabecaEscala: 1.18, listras: [0xc8102e, 0x111111], manga: 'curta', calca: 0x14213d, shorts: true, chinelo: 0x1a1a1a, capacete: null, cabelo: 0x0c0c0c },
 };
 
 /** Botoes da barra que levam a camera ate um veiculo do trafego (`chave` e a
