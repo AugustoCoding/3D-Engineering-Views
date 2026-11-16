@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { texturaListras } from './texturas.js';
 
 /**
  * ===========================================================================
@@ -41,12 +42,22 @@ function malha(g, mat, x, y, z, sx = 1, sy = 1, sz = 1) {
  *   pele     tom de pele
  *   capacete cor do capacete, ou null (cabelo)
  *   colete   cor do colete refletivo, ou null
+ *   porte    largura do tronco e grossura dos bracos (1 = corpo medio)
+ *   listras  [cor, cor]: camisa de listras horizontais, em vez de `roupa`
+ *   manga    'curta': braco de fora, com a manga so no alto
+ *   shorts   true: a calca acaba no joelho (canela de fora)
+ *   chinelo  cor do chinelo, em vez da bota
  * @returns {{ grupo: THREE.Group, animar: (fase: number, intensidade?: number) => void }}
  */
-export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7a, capacete = 0xffd24a, colete = null, cabelo = 0x2a211b } = {}) {
+export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7a, capacete = 0xffd24a, colete = null, cabelo = 0x2a211b,
+  porte = 1, listras = null, manga = 'longa', shorts = false, chinelo = null } = {}) {
   const g = new THREE.Group();
   g.name = 'pessoa';
-  const mRoupa = material(roupa), mCalca = material(calca), mPele = material(pele, { roughness: 0.6 });
+  const mRoupa = listras
+    ? new THREE.MeshStandardMaterial({ map: texturaListras(listras), roughness: 0.75, metalness: 0.02, name: 'camisa-listrada' })
+    : material(roupa);
+  const curta = manga === 'curta', gr = porte ** 1.3;   // o braco engrossa mais que o tronco alarga
+  const mCalca = material(calca), mPele = material(pele, { roughness: 0.6 });
   const mBota = material(0x2a2522, { roughness: 0.9 });
 
   const corpo = new THREE.Group();               // sobe e desce na caminhada
@@ -58,11 +69,18 @@ export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7
   for (const s of [-1, 1]) {
     const coxa = new THREE.Group();
     coxa.position.set(s * 0.1, yQuadril, 0);
-    coxa.add(malha(geo('coxa', () => new THREE.CapsuleGeometry(0.075, 0.34, 4, 10)), mCalca, 0, -0.22, 0));
+    coxa.add(malha(geo('coxa', () => new THREE.CapsuleGeometry(0.075, 0.34, 4, 10)), mCalca, 0, -0.22, 0, porte, 1, porte));
     const joelho = new THREE.Group();
     joelho.position.set(0, -0.44, 0);
-    joelho.add(malha(geo('canela', () => new THREE.CapsuleGeometry(0.06, 0.34, 4, 10)), mCalca, 0, -0.2, 0));
-    joelho.add(malha(geo('bota', () => new THREE.BoxGeometry(0.11, 0.08, 0.26)), mBota, 0, -0.43, 0.05));
+    joelho.add(malha(geo('canela', () => new THREE.CapsuleGeometry(0.06, 0.34, 4, 10)), shorts ? mPele : mCalca, 0, -0.2, 0, shorts ? porte : 1, 1, shorts ? porte : 1));
+    if (chinelo == null) joelho.add(malha(geo('bota', () => new THREE.BoxGeometry(0.11, 0.08, 0.26)), mBota, 0, -0.43, 0.05));
+    else {
+      // chinelo: sola fina, o pe de fora e a tira por cima do peito do pe
+      const mCh = material(chinelo, { roughness: 0.9 });
+      joelho.add(malha(geo('sola', () => new THREE.BoxGeometry(0.105, 0.022, 0.28)), mCh, 0, -0.459, 0.05));
+      joelho.add(malha(geo('pe', () => new THREE.BoxGeometry(0.09, 0.05, 0.23)), mPele, 0, -0.423, 0.05));
+      joelho.add(malha(geo('tira', () => new THREE.BoxGeometry(0.1, 0.012, 0.03)), mCh, 0, -0.394, 0.1));
+    }
     coxa.add(joelho);
     corpo.add(coxa);
     pernas.push({ coxa, joelho, s });
@@ -70,22 +88,28 @@ export function criarPessoa({ roupa = 0xf2a03d, calca = 0x2f3a4a, pele = 0xc89a7
 
   // --- tronco, quadril e pescoco ---
   corpo.add(malha(geo('quadril', () => new THREE.CapsuleGeometry(0.15, 0.08, 4, 12)), mCalca, 0, yQuadril + 0.02, 0, 1, 1, 0.8));
-  corpo.add(malha(geo('tronco', () => new THREE.CapsuleGeometry(0.17, 0.36, 4, 14)), mRoupa, 0, yQuadril + 0.33, 0, 1, 1, 0.72));
+  corpo.add(malha(geo('tronco', () => new THREE.CapsuleGeometry(0.17, 0.36, 4, 14)), mRoupa, 0, yQuadril + 0.33, 0, porte, 1, 0.72 * (1 + (porte - 1) * 0.6)));
+  // corpo forte: peitoral a frente e o deltoide no ombro, da cor da camisa
+  if (porte > 1.15) {
+    corpo.add(malha(geo('peito', () => new THREE.SphereGeometry(0.16, 14, 10)), mRoupa, 0, yQuadril + 0.42, 0.03, porte * 1.08, 0.75, 0.8));
+    for (const s of [-1, 1]) corpo.add(malha(geo('deltoide', () => new THREE.SphereGeometry(0.075, 12, 8)), mRoupa, s * 0.22 * porte, 1.43, 0, gr, gr, gr));
+  }
   if (colete) {
     corpo.add(malha(geo('colete', () => new THREE.CapsuleGeometry(0.178, 0.26, 4, 14)), material(colete, { emissive: colete, emissiveIntensity: 0.15 }),
       0, yQuadril + 0.37, 0, 1, 1, 0.76));
   }
-  corpo.add(malha(geo('pescoco', () => new THREE.CylinderGeometry(0.045, 0.05, 0.08, 10)), mPele, 0, 1.53, 0));
+  corpo.add(malha(geo('pescoco', () => new THREE.CylinderGeometry(0.045, 0.05, 0.08, 10)), mPele, 0, 1.53, 0, porte, 1, porte));
 
   // --- bracos: braco (pivo no ombro) > antebraco (pivo no cotovelo) > mao ---
   const bracos = [];
   for (const s of [-1, 1]) {
     const ombro = new THREE.Group();
-    ombro.position.set(s * 0.22, 1.43, 0);
-    ombro.add(malha(geo('braco', () => new THREE.CapsuleGeometry(0.052, 0.22, 4, 8)), mRoupa, 0, -0.15, 0));
+    ombro.position.set(s * 0.22 * porte, 1.43, 0);
+    ombro.add(malha(geo('braco', () => new THREE.CapsuleGeometry(0.052, 0.22, 4, 8)), curta ? mPele : mRoupa, 0, -0.15, 0, gr, 1, gr));
+    if (curta) ombro.add(malha(geo('manga', () => new THREE.CapsuleGeometry(0.058, 0.07, 4, 8)), mRoupa, 0, -0.08, 0, gr, 1, gr));
     const cotovelo = new THREE.Group();
     cotovelo.position.set(0, -0.3, 0);
-    cotovelo.add(malha(geo('antebraco', () => new THREE.CapsuleGeometry(0.045, 0.2, 4, 8)), mRoupa, 0, -0.13, 0));
+    cotovelo.add(malha(geo('antebraco', () => new THREE.CapsuleGeometry(0.045, 0.2, 4, 8)), curta ? mPele : mRoupa, 0, -0.13, 0, gr, 1, gr));
     const mao = malha(geo('mao', () => new THREE.SphereGeometry(0.045, 10, 8)), mPele, 0, -0.28, 0);
     cotovelo.add(mao);
     ombro.add(cotovelo);

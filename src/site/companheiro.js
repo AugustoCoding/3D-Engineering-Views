@@ -18,7 +18,7 @@ import { COMPANION } from '../data/ambiente.js';
  */
 export function criarCompanheiro({ cena, avisar }) {
   const controles = cena.controls, camera = cena.camera;
-  const pessoa = criarPessoa({ roupa: 0x2e8b57, calca: 0x2f3a4a, capacete: 0xffd24a, colete: 0xf28c28 });
+  const pessoa = criarPessoa(COMPANION.figura);
   const g = pessoa.grupo;
   g.name = 'pessoa-companion';
   g.userData.animar = true;                       // fora da fusao: ele se mexe

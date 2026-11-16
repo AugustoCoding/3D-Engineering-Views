@@ -309,6 +309,26 @@ export function triplanar(material, nome, metros, { vazado = null, ateVazado = 1
  *  so como pontos. 'empresa': branca, com o nome da placa da portaria.
  * --------------------------------------------------------------------- */
 const bandeiras = {};
+/** Listras horizontais (a camisa do companion): `cores` se alternam em
+ *  `faixas` faixas ao longo de v — a altura do tronco e do braco. */
+const LISTRAS = new Map();
+export function texturaListras(cores, faixas = 8) {
+  const k = `${cores.join('-')}-${faixas}`;
+  if (LISTRAS.has(k)) return LISTRAS.get(k);
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = faixas * 8;
+  const x = c.getContext('2d');
+  for (let i = 0; i < faixas; i++) {
+    x.fillStyle = `#${cores[i % cores.length].toString(16).padStart(6, '0')}`;
+    x.fillRect(0, i * 8, 4, 8);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.NearestFilter;
+  LISTRAS.set(k, t);
+  return t;
+}
+
 export function texturaBandeira(nome, texto = 'BENZOIC INDUSTRIES') {
   if (bandeiras[nome]) return bandeiras[nome];
   const W = 400, H = 280, M = W / 20;

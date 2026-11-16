@@ -227,7 +227,12 @@ function manobraBau() {
 /** Companion (site/companheiro.js): fica entre `perto` e `longe` m de quem
  *  anda; vem a `andar` m/s (a velocidade do modo andar) e corre a `correr`
  *  se ficou para tras; alem de `sumiu` m reaparece atras da camera. [ADOTADO] */
-export const COMPANION = { perto: 2, longe: 3, andar: 4.5, correr: 11, sumiu: 18 };
+export const COMPANION = {
+  perto: 2, longe: 3, andar: 4.5, correr: 11, sumiu: 18,
+  // a figura (pedido do autor, 16/11/2026): forte, camisa de listras
+  // rubro-negras, cabelo preto, shorts azul-escuro e chinelo [ADOTADO]
+  figura: { porte: 1.35, listras: [0xc8102e, 0x111111], manga: 'curta', calca: 0x14213d, shorts: true, chinelo: 0x1a1a1a, capacete: null, cabelo: 0x0c0c0c },
+};
 
 /** Botoes da barra que levam a camera ate um veiculo do trafego (`chave` e a
  *  do ator em site/ambiente.js; `tecla`, o atalho). [ADOTADO] */
