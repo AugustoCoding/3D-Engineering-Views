@@ -1,0 +1,48 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# Repositorio publico: recusa o commit que traga documento de escritorio,
+# segredo, e-mail ou nome de pessoa. Ligado por
+#     git config core.hooksPath .githooks
+# (uma vez por clone). Para um caso conferido a mao: git commit --no-verify.
+# Os nomes a barrar ficam em .nomes-privados.txt, fora do git.
+# ---------------------------------------------------------------------------
+falhou=0
+aviso() { echo "pre-commit: $1" >&2; falhou=1; }
+
+# 1. tipos de arquivo que nao entram
+ruins=$(git diff --cached --name-only --diff-filter=ACMR | grep -iE '\.(docx?|xlsx?|pptx?|pdf|pem|key)$|(^|/)\.env(\.|$)')
+[ -n "$ruins" ] && aviso "documento ou segredo no commit (guarde em ../documentos-privados/):
+$ruins"
+
+# 2. o que as linhas novas trazem (binarios e o package-lock ficam de fora)
+novas=$(git diff --cached -U0 --diff-filter=ACMR --text -- . ':!package-lock.json' ':!artifact/*' | grep -E '^\+' | grep -vE '^\+\+\+')
+
+segredo='(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY|(api[_-]?key|secret|password|senha|token)["'"'"' ]*[:=] *["'"'"'][^"'"'"']{8,})'
+achou=$(printf '%s\n' "$novas" | grep -nE "$segredo" | cut -c1-160)
+[ -n "$achou" ] && aviso "parece segredo:
+$achou"
+
+achou=$(printf '%s\n' "$novas" | grep -noE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}' | grep -viE 'noreply|example\.|@[0-9]' | head -5)
+[ -n "$achou" ] && aviso "e-mail no commit:
+$achou"
+
+achou=$(printf '%s\n' "$novas" | grep -nE '[A-Za-z]:\\+Users\\+[A-Za-z]|/Users/[a-z]|/home/[a-z]' | cut -c1-160 | head -5)
+[ -n "$achou" ] && aviso "caminho da maquina de alguem:
+$achou"
+
+# 3. nomes (lista local, fora do git); o HTML de entrega tambem e conferido
+raiz=$(git rev-parse --show-toplevel)
+if [ -f "$raiz/.nomes-privados.txt" ]; then
+  termos=$(grep -vE '^[[:space:]]*(#|$)' "$raiz/.nomes-privados.txt" | paste -sd'|' -)
+  if [ -n "$termos" ]; then
+    todas=$(git diff --cached -U0 --diff-filter=ACMR --text -- . ':!package-lock.json' | grep -E '^\+' | grep -vE '^\+\+\+')
+    achou=$(printf '%s\n' "$todas" | grep -noiE "($termos)" | sort -u | head -8)
+    [ -n "$achou" ] && aviso "nome de pessoa (ver .nomes-privados.txt):
+$achou"
+  fi
+else
+  echo "pre-commit: sem .nomes-privados.txt — nomes nao foram conferidos (ver CLAUDE.md)" >&2
+fi
+
+[ "$falhou" = 1 ] && { echo "pre-commit: commit recusado. Tire o que foi apontado, ou use --no-verify se conferiu." >&2; exit 1; }
+exit 0
