@@ -1,4 +1,4 @@
-# 3D Engineering Views — Benzoic Acid Plant
+# Three.js Industrial Plant — Benzoic Acid
 
 A navigable 3D model of a benzoic acid plant (15,840 t/year), built for an
 undergraduate chemical engineering design project. The plant is fictional,
