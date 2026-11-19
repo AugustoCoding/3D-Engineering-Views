@@ -1,0 +1,19 @@
+# Atualizacoes de versao: npm e as acoes do workflow do Pages, uma vez por
+# mes e agrupadas (um PR por ecossistema, nao um por pacote). As correcoes de
+# seguranca continuam saindo na hora, fora deste calendario.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      npm:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      acoes:
+        patterns: ["*"]

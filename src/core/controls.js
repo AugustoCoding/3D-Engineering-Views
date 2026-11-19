@@ -1,0 +1,429 @@
+import * as THREE from 'three';
+
+/**
+ * ===========================================================================
+ *  CAMERA EM PRIMEIRA PESSOA  —  convencao de jogo
+ * ===========================================================================
+ *
+ *  MAPEAMENTO (o mesmo de qualquer jogo em primeira pessoa)
+ *    arrastar bot. esquerdo -> OLHAR em volta (arrastar para a direita vira
+ *                              para a direita)
+ *    W A S D                -> andar/estrafiar em relacao ao olhar
+ *    Shift                  -> correr
+ *    Espaco / Ctrl          -> subir / descer
+ *    scroll                 -> avanca e recua na direcao do olhar
+ *    arrastar bot. direito  -> desloca no plano da tela (pan de CAD)
+ *
+ *  CONTROLE DE XBOX (Gamepad API, mapeamento padrao do navegador)
+ *    analogico esquerdo     -> andar (a inclinacao e a velocidade), sempre no
+ *                              plano do chao: olhar para baixo nao mergulha
+ *    analogico direito      -> olhar
+ *    A duas vezes           -> troca entre VOAR e ANDAR (como no modo criativo
+ *                              do Minecraft; Espaco duas vezes faz o mesmo)
+ *    voando                 -> A sobe, B ou clique no analogico direito desce
+ *                              (RT / LT tambem)
+ *    andando                -> gravidade, olhos a ALTURA_OLHOS do piso, A pula
+ *    clique no analogico esq.-> correr
+ *    botoes (A, B, X, Y, LB, RB, direcional, Start, View) -> `aoBotao(nome)`,
+ *    na borda de descida; quem chama decide o que cada um faz no HUD
+ *    (`controls.aoBotao = fn`; `controls.aoControle` avisa o primeiro uso;
+ *    `controls.aoModo(andando)` avisa a troca de modo).
+ *  Zona morta de 0,15: analogico em repouso nunca e exatamente zero.
+ *
+ *  ANDAR: o piso e y = 0 ou o topo da caixa de colisao sob os pes (laje de
+ *  predio). Degrau de ate DEGRAU sobe sozinho; mais que isso, so voando. A
+ *  camera nasce voando, e todo "ir para" (vista, equipamento, passeio) volta
+ *  a voar — senao ela cairia do ponto de vista assim que chegasse.
+ *
+ *  A versao anterior punha o PAN no botao esquerdo. Tecnicamente atendia ao
+ *  pedido, mas nao e o que a mao espera: em jogo, arrastar gira a cabeca, nao
+ *  translada o corpo. O pan continua existindo, no botao direito.
+ *
+ *  MOVIMENTO POR VELOCIDADE, nao por posicao: as teclas aplicam aceleracao e a
+ *  velocidade sofre atrito. E isso que da o peso e a inercia de jogo, em vez do
+ *  deslize uniforme de um "lerp para o alvo".
+ *
+ *  A camera guarda yaw/pitch proprios em vez de acumular quaternions: evita
+ *  gimbal e o rolamento parasita que aparece ao compor rotacoes.
+ *
+ *  COLISAO (Fase 16): `colisores` e uma lista de caixas {x0..x1, y0..y1,
+ *  z0..z1} — paredes, lajes e divisorias dos predios. A camera e uma esfera
+ *  de RAIO_CAMERA e anda eixo a eixo: o eixo que entraria numa caixa para, os
+ *  outros seguem (escorrega ao longo da parede). O voo ate um ponto de vista
+ *  e o "ir para" nao colidem; se a camera ja esta dentro de uma caixa, anda
+ *  livre ate sair, em vez de ficar presa.
+ */
+const RAIO_CAMERA = 0.3;
+// Modo andar. [ADOTADO] olhos de um adulto de 1,75 m; a gravidade e o pulo sao
+// de jogo, nao de fisica: 22 m/s² e 7 m/s dao um pulo de 1,1 m em 0,6 s (com
+// 9,81 o pulo parece flutuar). Degrau: o espelho de dois degraus de escada.
+const ALTURA_OLHOS = 1.7;
+const GRAVIDADE = 22;
+const VEL_PULO = 7;
+const DEGRAU = 0.6;
+const VEL_ANDAR = 4.5;        // m/s; correndo, vezes multiplicadorCorrida
+const TOQUE_DUPLO = 0.35;     // s entre dois toques de A (ou Espaco)
+export function criarControlesLivres(camera, dom, opts = {}) {
+  const {
+    alturaMinima = 0.6,
+    aceleracao = 62,          // m/s² aplicada pelas teclas
+    velocidadeMax = 11,       // m/s andando
+    multiplicadorCorrida = 2.6,
+    atrito = 9.5,             // 1/s — quanto a velocidade decai sozinha
+    sensibilidade = 0.0024,   // rad por pixel
+    suavizacaoOlhar = 0.35,   // 0 = instantaneo, 1 = muito mole
+  } = opts;
+
+  const LIMITE_PITCH = Math.PI / 2 - 0.02;
+
+  const est = {
+    yaw: 0,
+    pitch: 0,
+    yawAlvo: 0,
+    pitchAlvo: 0,
+    vel: new THREE.Vector3(),
+    arrasto: null,            // 'olhar' | 'pan'
+    ultimo: { x: 0, y: 0 },
+    teclas: new Set(),
+    ativo: true,
+    voo: null,                // voo suave ate um ponto de vista
+    botoes: [],               // estado anterior dos botoes do controle
+    controle: false,          // ja se usou um controle nesta sessao
+    colisores: [],
+    andando: false,           // false = voando (o modo em que a camera nasce)
+    noChao: false,
+    toque: -1,                // instante do ultimo toque de A/Espaco (s)
+  };
+
+  function definirModo(andando) {
+    if (est.andando === andando) return;
+    est.andando = andando;
+    est.noChao = false;
+    est.vel.y = 0;
+    api.aoModo?.(andando);
+  }
+  /** Toque de A ou Espaco: o segundo dentro de TOQUE_DUPLO troca o modo. */
+  function toque() {
+    if (!est.ativo || est.voo) return;
+    const agora = performance.now() / 1000;
+    if (agora - est.toque < TOQUE_DUPLO) { definirModo(!est.andando); est.toque = -1; } else est.toque = agora;
+  }
+
+  /** Cota do piso sob a camera: o topo mais alto das caixas sob os pes. No
+   *  chao so conta o que esta ate um DEGRAU acima do pe; caindo, tudo o que
+   *  ficou abaixo da esfera (pousa-se em cima do que houver). */
+  function chaoSob(p) {
+    return piso(p.x, p.z, est.noChao ? p.y - ALTURA_OLHOS : p.y - RAIO_CAMERA - DEGRAU);
+  }
+  /** Cota do piso em (x, z) para quem tem os pes em `yPes`: o topo mais alto
+   *  das caixas ate um DEGRAU acima deles (tambem para o companion). */
+  function piso(x, z, yPes) {
+    let y = 0;
+    for (const c of est.colisores) {
+      if (x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1 && c.y1 <= yPes + DEGRAU && c.y1 > y) y = c.y1;
+    }
+    return y;
+  }
+
+  function bate(p) {
+    const r = RAIO_CAMERA;
+    for (const c of est.colisores) {
+      if (p.x > c.x0 - r && p.x < c.x1 + r && p.y > c.y0 - r && p.y < c.y1 + r && p.z > c.z0 - r && p.z < c.z1 + r) return true;
+    }
+    return false;
+  }
+
+  /** Anda `passo`, eixo a eixo, parando no eixo que entraria numa caixa. */
+  function andar(passo) {
+    const p = camera.position;
+    if (!est.colisores.length) { p.add(passo); return; }
+    const preso = bate(p);
+    for (const eixo of ['x', 'y', 'z']) {
+      if (!passo[eixo]) continue;
+      p[eixo] += passo[eixo];
+      if (!preso && bate(p)) {
+        p[eixo] -= passo[eixo];
+        est.vel[eixo] = 0;
+      }
+    }
+  }
+
+  const frente = new THREE.Vector3();
+  const direita = new THREE.Vector3();
+  const cima = new THREE.Vector3();
+  const frenteChao = new THREE.Vector3();
+
+  function eixos() {
+    frente.set(0, 0, -1).applyQuaternion(camera.quaternion);
+    direita.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    cima.set(0, 1, 0).applyQuaternion(camera.quaternion);
+  }
+
+  function orientarDe(alvo) {
+    const d = new THREE.Vector3().subVectors(alvo, camera.position).normalize();
+    est.yawAlvo = est.yaw = Math.atan2(-d.x, -d.z);
+    est.pitchAlvo = est.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
+    aplicar();
+  }
+
+  function aplicar() {
+    camera.quaternion.setFromEuler(new THREE.Euler(est.pitch, est.yaw, 0, 'YXZ'));
+  }
+
+  /* ======================================================================
+   *  Mouse
+   * =================================================================== */
+  dom.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  dom.addEventListener('pointerdown', (e) => {
+    est.voo = null;                              // mexeu: o voo para
+    if (!est.ativo) return;
+    est.arrasto = e.button === 0 ? 'olhar' : 'pan';
+    est.ultimo.x = e.clientX;
+    est.ultimo.y = e.clientY;
+    dom.setPointerCapture(e.pointerId);
+    dom.style.cursor = est.arrasto === 'olhar' ? 'grabbing' : 'move';
+  });
+
+  const soltar = (e) => {
+    est.arrasto = null;
+    dom.style.cursor = '';
+    if (e?.pointerId !== undefined && dom.hasPointerCapture?.(e.pointerId)) {
+      dom.releasePointerCapture(e.pointerId);
+    }
+  };
+  dom.addEventListener('pointerup', soltar);
+  dom.addEventListener('pointercancel', soltar);
+
+  dom.addEventListener('pointermove', (e) => {
+    if (!est.arrasto || !est.ativo) return;
+    const dx = e.clientX - est.ultimo.x;
+    const dy = e.clientY - est.ultimo.y;
+    est.ultimo.x = e.clientX;
+    est.ultimo.y = e.clientY;
+
+    if (est.arrasto === 'olhar') {
+      // dx > 0 (arrastar para a direita) reduz o yaw = vira para a direita,
+      // que e a convencao de jogo.
+      est.yawAlvo -= dx * sensibilidade;
+      est.pitchAlvo = THREE.MathUtils.clamp(
+        est.pitchAlvo - dy * sensibilidade, -LIMITE_PITCH, LIMITE_PITCH,
+      );
+      return;
+    }
+
+    eixos();
+    const escala = Math.max(1.5, camera.position.y) * 0.0022;
+    camera.position.addScaledVector(direita, -dx * escala);
+    camera.position.addScaledVector(cima, dy * escala);
+  });
+
+  dom.addEventListener('wheel', (e) => {
+    if (!est.ativo) return;
+    e.preventDefault();
+    eixos();
+    const passo = THREE.MathUtils.clamp(camera.position.y * 0.3, 0.5, 5);
+    camera.position.addScaledVector(frente, -Math.sign(e.deltaY) * passo);
+  }, { passive: false });
+
+  /* ======================================================================
+   *  Teclado
+   * =================================================================== */
+  const NAV = new Set([
+    'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE',
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft',
+  ]);
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement) return;
+    if (e.code === 'Space' && !e.repeat) toque();
+    if (NAV.has(e.code)) { est.teclas.add(e.code); est.voo = null; e.preventDefault(); }
+  });
+  window.addEventListener('keyup', (e) => est.teclas.delete(e.code));
+  window.addEventListener('blur', () => est.teclas.clear());
+
+  /* ======================================================================
+   *  Quadro
+   * =================================================================== */
+  /* ======================================================================
+   *  Controle (Gamepad API)
+   * =================================================================== */
+  const ZONA_MORTA = 0.15;
+  const NOMES = ['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'view', 'start', 'LS', 'RS',
+    'cima', 'baixo', 'esquerda', 'direita'];
+  const morta = (v) => (Math.abs(v) < ZONA_MORTA ? 0 : (v - Math.sign(v) * ZONA_MORTA) / (1 - ZONA_MORTA));
+  function lerControle() {
+    const gp = navigator.getGamepads?.().find((g) => g && g.connected);
+    if (!gp) return null;
+    const ax = gp.axes;
+    const b = gp.buttons;
+    const leitura = {
+      lx: morta(ax[0] ?? 0), ly: morta(ax[1] ?? 0), rx: morta(ax[2] ?? 0), ry: morta(ax[3] ?? 0),
+      sobe: (b[7]?.value ?? 0) - (b[6]?.value ?? 0),
+      correr: !!b[10]?.pressed,
+      pulo: !!b[0]?.pressed,                       // A: pula (andando) ou sobe (voando)
+      desce: !!b[1]?.pressed || !!b[11]?.pressed,  // B ou clique no analogico direito
+    };
+    b.forEach((bt, i) => {
+      const antes = est.botoes[i];
+      if (i === 0 && bt.pressed && !antes) toque();
+      if (bt.pressed && !antes && NOMES[i] && i !== 6 && i !== 7) api.aoBotao?.(NOMES[i]);
+      est.botoes[i] = bt.pressed;
+    });
+    // so analogico e gatilho interrompem um voo: o botao que PEDIU o voo
+    // (LB/RB) nao pode cancela-lo no mesmo quadro
+    // (A e B tambem nao: no passeio sao pausa e saida)
+    const mexeu = leitura.lx || leitura.ly || leitura.rx || leitura.ry || Math.abs(leitura.sobe) > 0.05;
+    if (mexeu) est.voo = null;
+    if ((mexeu || b.some((x) => x.pressed)) && !est.controle) { est.controle = true; api.aoControle?.(); }
+    return leitura;
+  }
+
+  /** Voa ate `posicao` olhando para `olharPara`, em `duracao` s, com entrada e saida suaves. */
+  function voarPara(posicao, olharPara, duracao = 1.4) {
+    const d = new THREE.Vector3().subVectors(olharPara, posicao).normalize();
+    let yaw1 = Math.atan2(-d.x, -d.z);
+    while (yaw1 - est.yaw > Math.PI) yaw1 -= Math.PI * 2;      // pelo lado mais curto
+    while (yaw1 - est.yaw < -Math.PI) yaw1 += Math.PI * 2;
+    definirModo(false);
+    est.voo = {
+      de: camera.position.clone(), para: posicao.clone(), t: 0, duracao,
+      yaw0: est.yaw, pitch0: est.pitch, yaw1, pitch1: Math.asin(THREE.MathUtils.clamp(d.y, -1, 1)),
+    };
+    est.vel.set(0, 0, 0);
+  }
+
+  function update(dt) {
+    const gp = lerControle();
+    if (est.voo) {
+      const v = est.voo;
+      v.t = Math.min(1, v.t + dt / v.duracao);
+      const e = v.t < 0.5 ? 4 * v.t ** 3 : 1 - (-2 * v.t + 2) ** 3 / 2;
+      camera.position.lerpVectors(v.de, v.para, e);
+      est.yaw = est.yawAlvo = v.yaw0 + (v.yaw1 - v.yaw0) * e;
+      est.pitch = est.pitchAlvo = v.pitch0 + (v.pitch1 - v.pitch0) * e;
+      aplicar();
+      if (v.t >= 1) est.voo = null;
+      return;
+    }
+    if (gp && est.ativo) {
+      // olhar pelo analogico direito (na vista de planta o norte fica em cima): ~130°/s inclinado ate o fim
+      est.yawAlvo -= gp.rx * 2.3 * dt;
+      est.pitchAlvo = THREE.MathUtils.clamp(est.pitchAlvo - gp.ry * 1.7 * dt, -LIMITE_PITCH, LIMITE_PITCH);
+    }
+    // --- olhar: aproxima o angulo do alvo, dando um leve peso ao giro ---
+    const k = 1 - Math.pow(suavizacaoOlhar, dt * 60);
+    est.yaw += (est.yawAlvo - est.yaw) * k;
+    est.pitch += (est.pitchAlvo - est.pitch) * k;
+    aplicar();
+
+    // Desativado (vista de planta), o controle so orienta: as teclas continuam
+    // sendo registradas, e W com a camera olhando para baixo mergulharia no chao.
+    if (!est.ativo) { est.vel.set(0, 0, 0); return; }
+
+    // --- movimento: aceleracao das teclas + atrito ---
+    eixos();
+    // a frente no plano do chao: a do analogico sempre, e a de tudo ao andar
+    frenteChao.set(-Math.sin(est.yaw), 0, -Math.cos(est.yaw));
+    const t = est.teclas;
+    const dir = new THREE.Vector3();
+    const fr = est.andando ? frenteChao : frente;
+    if (t.has('KeyW') || t.has('ArrowUp')) dir.add(fr);
+    if (t.has('KeyS') || t.has('ArrowDown')) dir.sub(fr);
+    if (t.has('KeyD') || t.has('ArrowRight')) dir.add(direita);
+    if (t.has('KeyA') || t.has('ArrowLeft')) dir.sub(direita);
+    if (t.has('Space') || t.has('KeyE')) dir.y += 1;
+    if (t.has('ControlLeft') || t.has('KeyQ')) dir.y -= 1;
+    // o analogico soma ao teclado; a inclinacao vira a fracao da velocidade
+    let escalaControle = 1;
+    if (gp) {
+      const plano = new THREE.Vector3().addScaledVector(frenteChao, -gp.ly).addScaledVector(direita, gp.lx);
+      plano.y += gp.sobe + (gp.pulo ? 1 : 0) - (gp.desce ? 1 : 0);
+      if (plano.lengthSq() > 0 && dir.lengthSq() === 0) escalaControle = Math.min(1, plano.length());
+      dir.add(plano);
+    }
+
+    const correndo = t.has('ShiftLeft') || t.has('ShiftRight') || !!gp?.correr;
+
+    if (est.andando) {
+      // --- andando: so o plano do chao acelera; a vertical e gravidade e pulo ---
+      const pular = dir.y > 0.5;
+      dir.y = 0;
+      let vy = est.vel.y;
+      est.vel.y = 0;
+      const vMaxChao = VEL_ANDAR * (correndo ? multiplicadorCorrida : 1) * escalaControle;
+      if (dir.lengthSq() > 0) {
+        dir.normalize();
+        est.vel.addScaledVector(dir, aceleracao * dt);
+        if (est.vel.length() > vMaxChao) est.vel.setLength(vMaxChao);
+      }
+      est.vel.multiplyScalar(Math.exp(-atrito * dt));
+      if (est.vel.lengthSq() < 1e-6) est.vel.set(0, 0, 0);
+      if (pular && est.noChao) { vy = VEL_PULO; est.noChao = false; }
+      est.vel.y = vy - GRAVIDADE * dt;
+
+      andar(est.vel.clone().multiplyScalar(dt));
+      const p = camera.position;
+      const olhos = chaoSob(p) + ALTURA_OLHOS;
+      if (p.y <= olhos && est.vel.y <= 0) {
+        // pousa; degrau acima do pe sobe a 8 m/s em vez de saltar de uma vez
+        p.y = Math.min(olhos, p.y + 8 * dt);
+        est.vel.y = 0;
+        est.noChao = true;
+      } else est.noChao = false;
+      return;
+    }
+
+    const vMax = velocidadeMax * (correndo ? multiplicadorCorrida : 1) * escalaControle;
+
+    if (dir.lengthSq() > 0) {
+      dir.normalize();
+      est.vel.addScaledVector(dir, aceleracao * (correndo ? multiplicadorCorrida : 1) * dt);
+      if (est.vel.length() > vMax) est.vel.setLength(vMax);
+    }
+    // atrito exponencial: para suave em vez de travar seco
+    est.vel.multiplyScalar(Math.exp(-atrito * dt));
+    if (est.vel.lengthSq() < 1e-6) est.vel.set(0, 0, 0);
+
+    andar(est.vel.clone().multiplyScalar(dt));
+    if (camera.position.y < alturaMinima) {
+      camera.position.y = alturaMinima;
+      if (est.vel.y < 0) est.vel.y = 0;
+    }
+  }
+
+  /** Reposiciona a camera olhando para um ponto. */
+  function irPara(posicao, olharPara) {
+    camera.position.copy(posicao);
+    est.voo = null;
+    definirModo(false);
+    est.vel.set(0, 0, 0);
+    orientarDe(olharPara);
+  }
+
+  /** Enquadra uma caixa envolvente com afastamento em diagonal. */
+  function enquadrarCaixa(caixa, margem = 1.35, direcao = new THREE.Vector3(0.75, 0.38, 0.9)) {
+    const tam = caixa.getSize(new THREE.Vector3());
+    const centro = caixa.getCenter(new THREE.Vector3());
+    const maior = Math.max(tam.x, tam.y, tam.z);
+    const dist = (maior / 2) / Math.tan((camera.fov * Math.PI) / 360) * margem;
+    irPara(centro.clone().addScaledVector(direcao.clone().normalize(), dist), centro);
+  }
+
+  const api = {
+    update,
+    irPara,
+    voarPara,
+    enquadrarCaixa,
+    get ativo() { return est.ativo; },
+    set colisores(lista) { est.colisores = lista ?? []; },
+    get colisores() { return est.colisores; },
+    bate,
+    piso,
+    get andando() { return est.andando; },
+    set andando(v) { definirModo(!!v); },
+    set ativo(v) { est.ativo = v; if (!v) est.vel.set(0, 0, 0); },
+    estado: est,
+  };
+  return api;
+}

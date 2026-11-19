@@ -1,0 +1,52 @@
+# CodeQL com a mesma cobertura da configuracao padrao do GitHub (que este
+# arquivo substitui): as linguagens que o repositorio tem (Python saiu com os
+# scripts de processo), o mesmo conjunto de consultas
+# ("default"), a cada push e PR na main e uma vez por semana.
+#
+# A unica diferenca: nao analisa artifact/. Aquele HTML e SAIDA do build — o
+# codigo de src/ (que continua analisado) mais o three.js minificado. Analisado,
+# ele so repetia falso positivo da biblioteca (o uuid dos objetos da cena com
+# Math.random) a cada rebuild, e alerta que volta sempre ensina a ignorar
+# alerta. Nada que vai ao ar fica sem analise: o Pages gera o HTML de src/.
+#
+# Acoes fixadas por hash; o Dependabot (.github/dependabot.yml) as atualiza.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'   # segundas, 06:17 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  analisar:
+    name: Analisar (${{ matrix.linguagem }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # enviar os resultados para a aba Security
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        linguagem: [actions, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.linguagem }}
+          build-mode: none
+          # sem "queries": vale o conjunto padrao, o mesmo da configuracao automatica
+          config: |
+            paths-ignore:
+              - artifact/**
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.linguagem }}

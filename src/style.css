@@ -1,0 +1,399 @@
+/* ==========================================================================
+   Maquete 3D — Planta de acido benzoico
+   Interface sobre o canvas. Sem framework, sem fonte externa.
+   ========================================================================== */
+
+:root {
+  --bg: #11151c;
+  --painel: rgba(21, 26, 34, 0.86);
+  --borda: rgba(255, 255, 255, 0.09);
+  --texto: #e6eaf0;
+  --texto-fraco: #98a3b2;
+  --acento: #4da3ff;
+  --acento-suave: rgba(77, 163, 255, 0.14);
+  --fonte: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--fonte);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { position: relative; width: 100vw; height: 100vh; }
+
+.canvas3d { position: absolute; inset: 0; display: block; }
+
+/* A camada de rotulos cobre o canvas mas NAO recebe ponteiro — senao
+   engoliria o arrasto da camera e o clique de selecao.
+   O z-index nao e enfeite: o CSS2DRenderer numera as etiquetas de 1 a N para
+   ordena-las entre si, e sem um contexto de empilhamento proprio esses numeros
+   valiam contra o HUD — a TAG de um equipamento distante passava por cima da
+   ficha tecnica. Com z-index aqui, aquela numeracao fica CONFINADA a camada, e
+   o HUD, num indice maior, cobre todas. */
+.camada-rotulos {
+  position: absolute; inset: 0; z-index: 1;
+  pointer-events: none; overflow: hidden;
+}
+
+.hud { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+
+/* ------------------------------- cabecalho ------------------------------- */
+.topo { position: absolute; top: 20px; left: 22px; max-width: 46vw; }
+.topo .marca {
+  font-size: 17px; font-weight: 650; letter-spacing: -0.01em;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.7);
+}
+.topo .sub {
+  margin-top: 3px; font-size: 12.5px; color: var(--texto-fraco);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.7);
+}
+
+/* ----------------------------- ficha tecnica ----------------------------- */
+.painel {
+  position: absolute; top: 20px; right: 20px;
+  width: 320px; max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  font-size: 12.5px;
+}
+.painel.vazio { display: none; }
+.painel::-webkit-scrollbar { width: 8px; }
+.painel::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 8px; }
+
+.painel-cab { padding-bottom: 12px; border-bottom: 1px solid var(--borda); }
+.etiqueta {
+  display: inline-block; margin-bottom: 7px; padding: 2.5px 7px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--acento); background: var(--acento-suave); border-radius: 4px;
+}
+.painel h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+.painel-sub { margin: 5px 0 0; color: var(--texto-fraco); font-size: 12px; line-height: 1.45; }
+
+.ficha-grupo { margin-top: 15px; }
+.ficha-grupo h3 {
+  margin: 0 0 8px; font-size: 10px; font-weight: 650;
+  letter-spacing: 0.09em; text-transform: uppercase; color: var(--texto-fraco);
+}
+.ficha-grupo dl {
+  margin: 0; display: grid; grid-template-columns: 1fr auto;
+  gap: 5px 14px; align-items: baseline;
+}
+.ficha-grupo dt { color: var(--texto-fraco); font-size: 11.5px; }
+/* bussola (Fase 25): canto superior direito, por cima do 3D e abaixo dos
+   paineis; nao pega clique */
+.bussola { position: fixed; top: 14px; right: 14px; width: 64px; height: 64px; z-index: 6; pointer-events: none; }
+.bussola .b-fundo { fill: rgba(18, 26, 34, 0.72); stroke: rgba(255, 255, 255, 0.18); stroke-width: 1.5; }
+.bussola .b-risco { stroke: rgba(255, 255, 255, 0.45); stroke-width: 1.4; }
+.bussola .b-norte { fill: #e5533f; }
+.bussola .b-sul { fill: #d8dde3; }
+.bussola .b-eixo { fill: #2a333d; stroke: rgba(255, 255, 255, 0.5); stroke-width: 1; }
+.bussola .b-letra { fill: #e6eaf0; font: 700 13px system-ui, sans-serif; text-anchor: middle; dominant-baseline: central; }
+.bussola .b-n { fill: #ff8a75; }
+
+/* legenda das cores dos tubos (Fase 25, tecla C): o tubo desenhado como
+   um pedaco de tubo, e a faixa como o anel sobre o aluminio */
+.legenda-tubos {
+  position: fixed; right: 16px; top: 120px; z-index: 6; display: none;
+  width: min(300px, calc(100vw - 32px)); padding: 10px 12px; border-radius: 10px;
+  background: rgba(18, 26, 34, 0.86); border: 1px solid var(--borda); color: var(--texto);
+  font-size: 11.5px; pointer-events: none;
+}
+.legenda-tubos.aberta { display: block; }
+.lt-cab { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.lt-cab span { color: var(--texto-fraco); font-size: 10.5px; }
+.lt-sec { margin: 8px 0 3px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--texto-fraco); }
+.lt-l { display: flex; align-items: center; gap: 8px; margin: 3px 0; line-height: 1.3; }
+.lt-l small { color: var(--texto-fraco); font-size: 10px; }
+.lt-tubo {
+  flex: none; width: 34px; height: 9px; border-radius: 5px;
+  box-shadow: inset 0 2px 2px rgba(255, 255, 255, 0.35), inset 0 -2px 2px rgba(0, 0, 0, 0.35);
+}
+.lt-faixa { background: linear-gradient(90deg, #aab0b6 0 38%, var(--f) 38% 62%, #aab0b6 62%); }
+
+/* croqui oficial na ficha (Fase 24): a folha e branca, entao fica sobre o
+   branco com borda; a miniatura mostra o desenho, o visor le o carimbo */
+.ficha-croqui img {
+  display: block; width: 100%; max-height: 230px; object-fit: contain;
+  background: #fff; border-radius: 6px; border: 1px solid var(--borda); cursor: zoom-in;
+}
+.croqui-legenda { margin: 6px 0 0; font-size: 10.5px; line-height: 1.4; color: var(--texto-fraco); }
+.croqui-visor {
+  position: fixed; inset: 0; z-index: 30; display: none; flex-direction: column;
+  background: rgba(8, 12, 17, 0.88); backdrop-filter: blur(3px);
+}
+.croqui-visor.aberto { display: flex; }
+.croqui-cab {
+  display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px;
+  font-size: 12.5px; color: var(--texto);
+}
+.croqui-cab span { color: var(--texto-fraco); }
+.croqui-folha { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 0 16px 16px; }
+.croqui-folha img { height: calc(100vh - 60px); width: auto; background: #fff; border-radius: 4px; cursor: zoom-in; }
+.croqui-visor.ampliado .croqui-folha img { height: auto; width: min(100%, 1240px); cursor: zoom-out; }
+.ficha-grupo dd {
+  margin: 0; text-align: right; font-family: var(--mono);
+  font-size: 11.5px; font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------- controles ------------------------------- */
+.controles {
+  position: absolute; bottom: 20px; left: 22px; width: 296px;
+  /* em tela baixa (notebook) o topo saia da tela: rola por dentro, abaixo da barra */
+  max-height: calc(100vh - 110px); overflow-y: auto;
+  padding: 13px 15px 15px;
+  scrollbar-width: thin;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+.ctrl-cab {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 11px;
+  font-size: 10px; font-weight: 650; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--texto-fraco);
+}
+.btn-mini {
+  font: inherit; font-size: 10px; letter-spacing: 0.06em;
+  padding: 3px 9px; cursor: pointer;
+  color: var(--acento); background: var(--acento-suave);
+  border: 1px solid rgba(77, 163, 255, 0.3); border-radius: 5px;
+  text-transform: uppercase; font-weight: 650;
+}
+.btn-mini:hover { background: rgba(77, 163, 255, 0.24); }
+.ctrl-acoes { display: flex; gap: 6px; align-items: center; }
+.btn-recolher { padding: 3px 8px; font-size: 12px; line-height: 1; }
+
+.controles.recolhido .toggles,
+.controles.recolhido .corte { display: none; }
+.controles.recolhido .ctrl-cab { margin-bottom: 0; }
+
+.toggles { display: flex; flex-direction: column; gap: 1px; }
+.toggle {
+  display: flex; align-items: center; gap: 9px;
+  padding: 4px 6px; margin: 0 -6px; border-radius: 6px;
+  font-size: 12px; cursor: pointer; user-select: none;
+}
+.toggle:hover { background: rgba(255, 255, 255, 0.045); }
+.toggle input { accent-color: var(--acento); width: 14px; height: 14px; cursor: pointer; }
+
+/* --- foco por equipamento --- */
+.ctrl-titulo {
+  font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--texto-fraco); margin: 0 0 6px;
+}
+.equipamentos { padding-bottom: 11px; margin-bottom: 4px; border-bottom: 1px solid var(--borda); }
+.ctrl-zona { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; margin: 8px 0 4px; }
+/* Duas colunas e rolagem: com 13 equipamentos a lista em coluna unica ocupava
+ * o painel inteiro e empurrava as camadas para fora da tela. */
+.chips {
+  /* minmax(0, ...): o nome longo encurta com reticencias em vez de alargar a
+   * coluna e abrir rolagem horizontal */
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px;
+  max-height: 172px; overflow-y: auto; overflow-x: hidden; padding-right: 3px;
+}
+.chips::-webkit-scrollbar, .controles::-webkit-scrollbar { width: 6px; }
+.controles::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 6px; }
+.chips::-webkit-scrollbar-thumb { background: rgba(255,255,255,.16); border-radius: 6px; }
+.chip {
+  display: flex; flex-direction: column; gap: 1px; text-align: left;
+  padding: 5px 7px; border-radius: 6px; cursor: pointer;
+  background: rgba(255, 255, 255, .04); border: 1px solid transparent;
+  color: inherit; font: inherit; font-size: 12.5px;
+  transition: background .12s, border-color .12s;
+}
+.chip:hover { background: rgba(255, 255, 255, .09); }
+.chip.ativo { background: var(--acento-suave); border-color: var(--acento); }
+.chip b { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.chip span {
+  color: var(--texto-fraco); font-size: 10.5px; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chip.ativo span { color: inherit; }
+.controles.recolhido .equipamentos { display: none; }
+
+/* etiquetas de linha de tubulacao */
+.linha-label, .linha-num {
+  font: 11px ui-monospace, Consolas, monospace;
+  color: #0e141b; background: rgba(226, 233, 240, .92);
+  padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+  border: 1px solid rgba(0, 0, 0, .25);
+}
+.linha-num { font-weight: 700; background: rgba(255, 232, 180, .94); }
+
+.corte { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--borda); }
+.toggle.destaque span { font-weight: 600; }
+.slider {
+  width: 100%; margin-top: 9px; accent-color: var(--acento);
+  cursor: pointer; height: 4px;
+}
+.slider:disabled { opacity: 0.32; cursor: not-allowed; }
+
+/* ---------------------------------- dica --------------------------------- */
+/* ===================== barra de vistas do HUD ===================== */
+/* Topo ao CENTRO: o titulo ocupa a esquerda e a ficha tecnica a direita. */
+.barra-hud {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; pointer-events: auto; flex-wrap: wrap;
+  justify-content: center; max-width: 46vw;
+}
+.btn-hud {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--texto);
+  background: var(--painel); border: 1px solid var(--borda);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: opacity .12s, border-color .12s;
+}
+.btn-hud:hover { border-color: var(--acento); }
+.btn-hud.desligado { opacity: .42; }
+.btn-hud kbd {
+  font: 10px ui-monospace, Consolas, monospace; padding: 1px 4px;
+  border-radius: 3px; background: rgba(255, 255, 255, .1); color: var(--texto-fraco);
+}
+/* Peca oculta some do fluxo E para de capturar clique. */
+.oculto { display: none !important; }
+/* Quando tudo esta oculto (tecla H), a barra fica discreta. */
+.barra-hud.sozinha { opacity: .3; }
+.barra-hud.sozinha:hover { opacity: 1; }
+
+/* A dica ocupa a FAIXA LIVRE entre o painel de exibicao (esquerda) e a ficha
+ * tecnica (direita). Antes ela era centrada na tela e passava por cima do
+ * painel de exibicao sempre que a lista de camadas crescia. */
+/* Tela de ajuda: cartao no meio da tela, quatro colunas de atalhos. */
+.dica {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 120px); overflow: auto;
+  padding: 18px 22px 16px;
+  font-size: 12.5px; line-height: 1.5; color: var(--texto-fraco);
+  background: rgba(17, 21, 28, 0.88);
+  border: 1px solid var(--borda); border-radius: 14px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+.dica b { color: var(--texto); font-weight: 600; }
+.dica .aj-cab { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.dica .aj-cab b { font-size: 16px; }
+.dica .aj-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px 22px; }
+.dica h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--texto); opacity: .8; }
+.dica .aj-l { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+.dica kbd {
+  flex: none; min-width: 22px; padding: 1px 6px; border-radius: 5px; font: 600 11px ui-monospace, monospace;
+  color: var(--texto); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--borda); text-align: center;
+}
+.dica .aj-pe { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--borda); }
+
+/* Mira do controle: so aparece depois que alguem usa o controle. */
+.aviso {
+  position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%);
+  padding: 7px 14px; border-radius: 8px; font-size: 13px; color: var(--texto);
+  background: var(--painel); border: 1px solid var(--borda);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+}
+.aviso.ligado { opacity: 1; }
+
+/* --------------------------- rotulos dentro do 3D -------------------------
+   Cada etiqueta e um par de divs (ver lib/dimensions.js): o EXTERNO recebe a
+   posicao do CSS2DRenderer, que reescreve `transform` a cada quadro — nada
+   nosso pode morar la — e leva a opacidade; o INTERNO leva a escala.
+   A transicao e o que faz a etiqueta entrar e sair suave quando o
+   desempilhamento troca quem aparece, em vez de piscar. */
+.rotulo {
+  position: absolute;
+  transition: opacity .15s linear;
+  will-change: opacity;
+}
+.rotulo > * { transform-origin: 50% 50%; }
+
+.cota-label {
+  padding: 2px 7px;
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: #cfe4ff; background: rgba(17, 21, 28, 0.82);
+  border: 1px solid rgba(77, 163, 255, 0.4); border-radius: 4px;
+  white-space: nowrap; pointer-events: none;
+}
+.cota-elev { border-color: rgba(77, 163, 255, 0.22); color: var(--texto-fraco); }
+
+.bocal-label {
+  padding: 1.5px 6px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  color: #ffd98a; background: rgba(17, 21, 28, 0.8);
+  border: 1px solid rgba(255, 200, 90, 0.34); border-radius: 4px;
+  white-space: nowrap; pointer-events: none;
+}
+
+.tag-label {
+  padding: 5px 14px;
+  font-family: var(--mono); font-size: 15px; font-weight: 700; letter-spacing: 0.06em;
+  color: #ffffff; background: rgba(20, 26, 36, 0.88);
+  border: 1.5px solid var(--acento); border-radius: 7px;
+  box-shadow: 0 4px 22px rgba(0, 0, 0, 0.55);
+  white-space: nowrap; pointer-events: none;
+}
+
+/* ----------------------------- implantacao ------------------------------
+   So aparecem na vista de planta (tecla P). A cor da borda repete a da
+   categoria do bloco no chao, para a etiqueta e a placa se lerem juntas. */
+.zona-label {
+  padding: 2px 7px;
+  font-size: 11px; font-weight: 600;
+  color: #fff; background: rgba(17, 21, 28, 0.84);
+  border: 1.5px solid var(--cor-zona, rgba(255, 255, 255, 0.35)); border-radius: 5px;
+  white-space: nowrap; pointer-events: none;
+}
+.zona-processo { --cor-zona: #4da3ff; font-size: 14px; }
+.zona-tanques { --cor-zona: #d9814a; }
+.zona-carga { --cor-zona: #e0a64a; }
+.zona-utilidade { --cor-zona: #a77fd0; }
+.zona-torre { --cor-zona: #4fa6d0; }
+.zona-incendio { --cor-zona: #e05a4c; }
+.zona-controle { --cor-zona: #45c2ab; }
+.zona-apoio { --cor-zona: #9aa8b6; }
+.zona-ocupado { --cor-zona: #5cc472; }
+.zona-efluentes { --cor-zona: #93b84a; }
+.zona-estacionamento, .zona-verde { --cor-zona: rgba(255, 255, 255, 0.25); color: var(--texto-fraco); }
+.zona-encontro { --cor-zona: #b6e07a; }
+.zona-portao { --cor-zona: #ff9f43; font-size: 11px; }
+.zona-norte { --cor-zona: transparent; background: none; font-size: 18px; font-weight: 800; }
+.zona-vento { --cor-zona: #7cc4ff; color: #cfe8ff; }
+
+.dist-label {
+  padding: 2px 7px;
+  font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums;
+  color: #ffd98a; background: rgba(17, 21, 28, 0.86);
+  border: 1px solid rgba(255, 194, 71, 0.55); border-radius: 4px;
+  white-space: nowrap; pointer-events: none;
+}
+
+.btn-hud.ativo { border-color: var(--acento); background: rgba(77, 163, 255, 0.22); }
+
+/* --------------------------------- celular -------------------------------- */
+@media (max-width: 760px) {
+  .topo { max-width: calc(100vw - 44px); }
+  .painel {
+    top: auto; bottom: 12px; right: 12px; left: 12px;
+    width: auto; max-height: 42vh;
+  }
+  .controles {
+    top: 74px; bottom: auto; left: 12px; right: 12px; width: auto;
+  }
+  .dica { display: none; }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "threejs-industrial-plant",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Navigable 3D model of a benzoic acid plant",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/build-artifact.mjs",
+    "preview": "vite preview",
+    "artifact": "npm run build",
+    "artifact:publico": "node scripts/artifact-publico.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,41 @@
+node_modules/
+dist/
+.vite/
+*.log
+
+# Processo de desenvolvimento (roteiro, instrucoes das sessoes, geradores de
+# documentos, codigo arquivado): fica fora do repositorio, na pasta irma
+# ../desenvolvimento/ e, o CLAUDE.md, na pasta-mae. Barrado aqui caso volte.
+ROTEIRO.md
+CLAUDE.md
+geracao-de-documentos/
+src/arquivo/
+# configuracao local do Claude Code (servidor de preview)
+.claude/
+
+# ---------------------------------------------------------------------------
+# REPOSITORIO PUBLICO: nada com nome de pessoa, RA, e-mail ou segredo.
+# ---------------------------------------------------------------------------
+# Documentos do grupo (relatorio, folhas, P&ID, croquis): ficam na pasta ao
+# lado, ../documentos-privados/. Qualquer documento de escritorio fica fora.
+Especificações dos Equipamentos*/
+documentos-privados/
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.pptx
+*.pdf
+# folhas dos croquis com o carimbo (nomes): saida do gerador de croquis, fora do repositorio
+src/data/croquis.js
+# nomes da equipe para os geradores e para o gancho de commit
+.nomes-privados.txt
+# segredos e configuracao local
+.env
+.env.*
+*.pem
+*.key
+
+# rosto do companion e outros dados locais: pessoa de verdade, fora do git
+*.local.js
+artifact/*.local.html
