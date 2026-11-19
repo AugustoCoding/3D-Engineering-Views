@@ -14,8 +14,9 @@ by GitHub Pages on every push to `main`.
 
 - **First-person camera** with game-style controls. Fly over the site or walk
   on the ground, and use an Xbox controller if you have one.
-- **Process area** with reactor, vessels, columns, crystallizers, filters,
-  dryer, pumps, a pipe rack, piping, valves and instrumentation.
+- **Process area** with the toluene oxidation reactor, flash stripper,
+  crystallizers, rotary filters, dissolver, storage tank, pumps, a pipe rack,
+  piping, valves and instrumentation.
 - **Plant surroundings**: roads, tank farm, utilities, water and wastewater
   treatment, buildings you can walk into, traffic and people with daily
   routines.
