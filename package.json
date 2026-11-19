@@ -18,11 +18,11 @@
     "datasheet-geral": "node geracao-de-documentos/gerar-datasheet-geral.mjs"
   },
   "dependencies": {
-    "three": "^0.185.1"
+    "three": "^0.187.0"
   },
   "devDependencies": {
-    "docx": "^9.7.1",
-    "vite": "^8.2.4"
+    "docx": "^9.15.4",
+    "vite": "^8.3.8"
   },
   "license": "MIT"
 }
