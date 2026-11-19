@@ -196,3 +196,10 @@ Regra que mantém isso administrável conforme a planta cresce:
 - **Etiquetas com nível de detalhe**: identificação de bocal só de perto, número
   de linha a média distância, TAG sempre — encolhendo com a distância, sem se
   sobrepor, e esmaecidas quando o equipamento está atrás de outro.
+
+---
+
+## Licença
+
+[MIT](LICENSE). A planta é fictícia, de um projeto acadêmico: os números de
+processo servem para a maquete e não substituem projeto de engenharia.

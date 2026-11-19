@@ -23,5 +23,6 @@
   "devDependencies": {
     "docx": "^9.7.1",
     "vite": "^8.2.4"
-  }
+  },
+  "license": "MIT"
 }
