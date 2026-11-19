@@ -5,6 +5,9 @@ química.
 
 A maquete roda no navegador, num arquivo HTML único: quem recebe não instala nada.
 
+**Ver ao vivo:** o link fica no "About" da página do repositório — a maquete
+é publicada pelo GitHub Pages a cada push na `main` (`.github/workflows/pages.yml`).
+
 **Vai mexer no projeto? Leia [`CLAUDE.md`](CLAUDE.md)** — método de trabalho,
 arquitetura e armadilhas já pagas — e o [`ROTEIRO.md`](ROTEIRO.md).
 
